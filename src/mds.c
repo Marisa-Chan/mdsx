@@ -215,17 +215,17 @@ int main(int argc, const char *argv[])
         cElems = (u16 *)calloc(numCElm, 2);
 
         u16 *tmpBuff = calloc(numCElm + 0x800, 2);
-        fseek(mdf, ctableoff, SEEK_SET);
+        fseek(mdf, startOffset + ctableoff, SEEK_SET);
 
         /* read till file end?
            or it's can be multiple instances? */
-        fread(tmpBuff, mdfsize - ctableoff, 1, mdf);
+        fread(tmpBuff, mdfsize - (ctableoff + startOffset), 1, mdf);
 
         z_stream cstrm;
         cstrm.zalloc = Z_NULL;
         cstrm.zfree = Z_NULL;
         cstrm.opaque = Z_NULL;
-        cstrm.avail_in = mdfsize - ctableoff;
+        cstrm.avail_in = mdfsize - (ctableoff + startOffset);
         cstrm.next_in = (Bytef *)tmpBuff;
         cstrm.avail_out = numCElm * 2;
         cstrm.next_out = (Bytef *)cElems;
@@ -242,7 +242,7 @@ int main(int argc, const char *argv[])
     /* we write only first track with data ??? */
     FILE *outfile = fopen("image.out", "wb");
 
-    fseek(mdf, 0, SEEK_SET);
+    fseek(mdf, startOffset, SEEK_SET);
 
     if (compressed)
     {
