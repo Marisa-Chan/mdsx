@@ -1,0 +1,22 @@
+This is successful attempt to make decompressor and decryptor for MDSv2 / MDX files.
+
+It's not full converter to MDSv1 or ISO, it's just attempt to make "base" for other developers who want support this formats.
+
+Initially I try reverse structures, ciphers and etc, but after some time I realized that is encryption is based on TrueCrypt, 
+and seems it's was old version where still no XTS encryption mode but they just update their lib and add XTS(with some errors).
+
+So I took TrueCrypt 5.1a sources and adapt it, so it's work same, but seems DT use only AES256 with GF.
+It's can be simplify to use only one cipher, but needs more tests with various MDSv2/MDX images.
+
+In `RE_firsttry` my first attempt to write decryptor where I realize it's modified TrueCrypt.
+So I just rewrite it with parts of TrueCrypt in `src` dir.
+
+
+To build `reader` in `src` dir prepared simple Makefile, so you can just do `make` in dir and it will build `mds` binary.
+
+
+Usage is `mds /path/to/file.mds [password]`
+
+
+
+In `testdata` I make test files with different modes. Password is in the filenames (pass and pazz)
