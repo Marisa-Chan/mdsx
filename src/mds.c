@@ -230,6 +230,7 @@ int main(int argc, const char *argv[])
     {
         u32 sz1 = getU32(mdxHeader + footerOff + offsetof(MDX_Footer, _unk1_size32_));
         u64 sz2 = getU32(mdxHeader + footerOff + offsetof(MDX_Footer, _unk2_size64_));
+        // seems it's offset relative to the track
         u64 ctableoff = getU64(mdxHeader + footerOff + offsetof(MDX_Footer, compress_table_offset));
 
         cBlockSz = sz1 * secSize;
@@ -246,18 +247,23 @@ int main(int argc, const char *argv[])
         numCElm = ((sz1 - 1) + sz2) / sz1;
         cElems = (u16 *)calloc(numCElm, 2);
 
-        u16 *tmpBuff = calloc(numCElm + 0x800, 2);
-        fseek(mdf, startOffset + ctableoff, SEEK_SET);
+        u64 filectableoff = startOffset + ctableoff;
 
-        /* read till file end?
-           or it's can be multiple instances? */
-        fread(tmpBuff, mdfsize - (ctableoff + startOffset), 1, mdf);
+        //This is how DT compute size to read
+        u16 *tmpBuff = calloc(numCElm + 0x800, 2); // numCElm * 2 + 0x1000
+
+        u64 creadsz = (numCElm + 0x800) * 2;
+        if ( mdfsize - filectableoff < creadsz )
+            creadsz = mdfsize - filectableoff;
+
+        fseek(mdf, filectableoff, SEEK_SET);
+        fread(tmpBuff, creadsz, 1, mdf);
 
         z_stream cstrm;
         cstrm.zalloc = Z_NULL;
         cstrm.zfree = Z_NULL;
         cstrm.opaque = Z_NULL;
-        cstrm.avail_in = mdfsize - (ctableoff + startOffset);
+        cstrm.avail_in = creadsz;
         cstrm.next_in = (Bytef *)tmpBuff;
         cstrm.avail_out = numCElm * 2;
         cstrm.next_out = (Bytef *)cElems;
