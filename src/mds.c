@@ -19,6 +19,45 @@ typedef struct tTrackInfo
 } TrackInfo;
 
 
+void TrackDataDecrypt(Decoder *ctx, u8 *buffer, u32 length, u64 sectorSize, u64 blockIndex, u8 flags)
+{
+    const u32 blkSize = sectorSize & (~0xf);
+    u64 blkIndex = blockIndex;
+    if (flags & 1)
+    {
+        //unaligned less than sector
+        s32 dataRemain = length;
+        while (dataRemain > 0)
+        {
+            u32 dsz = blkSize;
+            if (dsz > dataRemain)
+                dsz = dataRemain;
+
+            decryptMdxData(ctx, buffer, dsz, blkSize, blkIndex);
+            buffer += dsz;
+            blkIndex++;
+            dataRemain -= dsz;
+        }
+    }
+    else
+    {
+        //aligned by sector size. full sectors, but decrypt only aligned size
+        s32 dataRemain = length;
+        while (dataRemain > 0)
+        {
+            u32 dsz = blkSize;
+            if (dsz > dataRemain)
+                dsz = dataRemain;
+
+            decryptMdxData(ctx, buffer, blkSize, blkSize, blkIndex);
+            buffer += sectorSize;
+            blkIndex++;
+            dataRemain -= sectorSize;
+        }
+    }
+}
+
+
 int main(int argc, const char *argv[])
 {
     int trackCount = 0;
@@ -320,6 +359,10 @@ int main(int argc, const char *argv[])
             inflate(&cstrm, Z_NO_FLUSH);
             inflateEnd(&cstrm);
 
+            // FILE *cc = fopen("ctable", "wb");
+            // fwrite(trk->ctable, trk->c_num * 2, 1, cc);
+            // fclose(cc);
+
             free(tmpBuff);
         }
     }
@@ -383,9 +426,7 @@ int main(int argc, const char *argv[])
                     fread(ibuf, rdsize, 1, mdf);
 
                     if (encryptInfo.mode != -1)
-                    {
-                        decryptMdxData(&encryptInfo, ibuf, rdsize, trk->c_block, outTrackOffset / trk->c_block);
-                    }
+                        TrackDataDecrypt(&encryptInfo, ibuf, rdsize, trk->sector_size, outTrackOffset / trk->sector_size, trk->footer_flags);
 
                     fwrite(ibuf, rdsize, 1, outfile);
                 }
@@ -406,9 +447,7 @@ int main(int argc, const char *argv[])
                         fread(ibuf, rdsize, 1, mdf);
 
                         if (encryptInfo.mode != -1)
-                        {
-                            decryptMdxData(&encryptInfo, ibuf, rdsize, trk->c_block, outTrackOffset / trk->c_block);
-                        }
+                            TrackDataDecrypt(&encryptInfo, ibuf, rdsize, trk->sector_size, outTrackOffset / trk->sector_size, trk->footer_flags);
 
                         z_stream cstrm;
                         cstrm.zalloc = Z_NULL;
@@ -429,7 +468,7 @@ int main(int argc, const char *argv[])
 
                         if (cstrm.avail_in > 0)
                         {
-                            printf("Err uncompress. Remain %d bytes\n", cstrm.avail_in);
+                            printf("Err uncompress. Remain %d bytes on %d cblock (%04x) inaddr %x\n", cstrm.avail_in, i, elm, inAddr);
                             return -1;
                         }
 
@@ -466,7 +505,8 @@ int main(int argc, const char *argv[])
 
                 fread(ibuf, sz, 1, mdf);
                 if (encryptInfo.mode != -1)
-                    decryptMdxData(&encryptInfo, ibuf, sz, trk->sector_size, outTrackOffset / trk->sector_size);
+                    TrackDataDecrypt(&encryptInfo, ibuf, sz, trk->sector_size, outTrackOffset / trk->sector_size, trk->footer_flags);
+
                 fwrite(ibuf, sz, 1, outfile);
 
                 outTrackOffset += trk->sector_size;
