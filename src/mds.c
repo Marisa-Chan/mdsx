@@ -374,7 +374,7 @@ int main(int argc, const char *argv[])
         char ofbuf[1024];
         sprintf(ofbuf, "track%02d.out", trk->id);
 
-        printf("%s  ", ofbuf);
+        printf("%s  sector size: %d  ", ofbuf, trk->sector_size);
 
         if (trk->footer_flags & 1) //compressed
             putc('c', stdout);
