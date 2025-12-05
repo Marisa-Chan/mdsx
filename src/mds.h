@@ -21,6 +21,28 @@ typedef struct Decoder_t
 } Decoder;
 
 
+
+enum TRACK_TYPE
+{
+	TRK_T_MAINTENANCE = 0,
+	TRK_T_AUDIO = 1,
+	TRK_T_MODE1 = 2,
+	TRK_T_MODE2 = 3,
+	TRK_T_MODE2_FORM1 = 4,
+	TRK_T_MODE2_FORM2 = 5
+};
+
+enum TRACK_FLAG
+{
+	TRK_F_TYPE_MASK = 7,
+	TRK_F_EDC = 8,
+	TRK_F_10 = 0x10,
+	TRK_F_HEADER = 0x20,
+	TRK_F_SUBHEADER = 0x40,
+	TRK_F_SYNC = 0x80
+};
+
+
 typedef struct __attribute__((packed))
 {
 	u32 f0;
@@ -87,7 +109,7 @@ typedef struct __attribute__((packed))
 	u8 psec;
 	u8 pframe;
 	u32 extra_offset; // 0xc
-	u16 sector_size; // 0x10
+	u16 file_block_size; // 0x10   original name. represent full size of data and additional data per sector
 	u8 _unk1_; // 0x12
 	u8 _dummy1_[5]; // 0x13
 	u32 _unk2_; // 0x18;

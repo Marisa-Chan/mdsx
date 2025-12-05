@@ -2,11 +2,25 @@
 #include <zlib.h>
 
 
+const char *S_TRACK_TYPE[7] =
+{
+    "MAINTENANCE", //0
+    "AUDIO", //1
+    "MODE1", //2
+    "MODE2", //3
+    "MODE2_FORM1", //4
+    "MODE2_FORM2", //5
+    "" //6
+};
+
+
 typedef struct tTrackInfo
 {
     struct tTrackInfo *next;
     int id;
-    u16 sector_size;
+    u8 track_type;
+    u8 track_flags;
+    u16 file_block_size;
     u64 start_offset;
     u64 length; // in sectors
     u64 end_offset;
@@ -64,21 +78,44 @@ int main(int argc, const char *argv[])
     TrackInfo *processTracks = NULL;
     TrackInfo *lastAddTrack = NULL;
 
+    int extractOnlyData = 0;
+
+    const char *spath = NULL;
+    const char *spass = NULL;
+
     int isMDX = 0;
     u64 mdxOffset = 0;
     u64 mdxSize1 = 0;
 
-    if (argc < 2)
+    for (int p = 1; p < argc; p++)
+    {
+        const char *stst = argv[p];
+        if (*stst == '-')
+        {
+            if ( strchr(stst, 'd') != NULL )
+                extractOnlyData = 1;
+        }
+        else
+        {
+            if (spath == NULL)
+                spath = stst;
+            else if (spass == NULL)
+                spass = stst;
+        }
+    }
+
+    if (!spath)
     {
         printf("Nothing to open\n");
         return 0;
     }
 
-    FILE *mds = fopen(argv[1], "rb");
+
+    FILE *mds = fopen(spath, "rb");
 
     if (!mds)
     {
-        printf("Can't open %s\n", argv[1]);
+        printf("Can't open %s\n", spath);
         return 0;
     }
 
@@ -169,10 +206,10 @@ int main(int argc, const char *argv[])
 
         const char *password = NULL;
 
-        if (argc < 3)
+        if (!spass)
             printf("Trying without password\n");
         else
-            password = argv[2];
+            password = spass;
 
 
 
@@ -185,9 +222,9 @@ int main(int argc, const char *argv[])
         else
         {
             if (password)
-                printf("Password \"%s\": WRONG\n", argv[2]);
+                printf("Password \"%s\": WRONG\n", password);
             else
-                printf("Please specify password as 2nd argument. Seems it's necessery.\n");
+                printf("Please specify password. Seems it's necessery.\n");
 
             printf("But we save header_not_decrypted.out with encrypted key block\n");
 
@@ -239,15 +276,17 @@ int main(int argc, const char *argv[])
             u32 trkOff = tracksOff + j * sizeof(MDX_TrackBlock);
 
             u8 mode = getU8(mdxHeader + trkOff + offsetof(MDX_TrackBlock, mode));
-            if ((mode & 7) != 0) // ????
+            if ((mode & TRK_F_TYPE_MASK) != TRK_T_MAINTENANCE)
             {
                 TrackInfo *trk = (TrackInfo *)malloc(sizeof(TrackInfo));
 
                 trk->next = NULL;
+                trk->track_type = mode & TRK_F_TYPE_MASK;
+                trk->track_flags = mode;
                 trk->id = trackCount;
                 trk->c_num = 0;
                 trk->ctable = NULL;
-                trk->sector_size = getU16(mdxHeader + trkOff + offsetof(MDX_TrackBlock, sector_size));
+                trk->file_block_size = getU16(mdxHeader + trkOff + offsetof(MDX_TrackBlock, file_block_size));
                 trk->start_offset = getU64(mdxHeader + trkOff + offsetof(MDX_TrackBlock, start_offset));
                 trk->footer_offset = getU32(mdxHeader + trkOff + offsetof(MDX_TrackBlock, footer_offset));
 
@@ -299,7 +338,7 @@ int main(int argc, const char *argv[])
 
         /* here must be footer filename, but we hardcode *.mdf*/
         char n_mdf[1024];
-        strcpy(n_mdf, argv[1]);
+        strcpy(n_mdf, spath);
         n_mdf[ strlen(n_mdf) - 1 ] = 'f';
 
         printf("\nReading MDF file %s\n\n", n_mdf);
@@ -324,10 +363,10 @@ int main(int argc, const char *argv[])
             u64 sz2 = getU32(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, _unk2_size64_));
             u64 ctableoff = getU64(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, compress_table_offset));
 
-            trk->c_block = sz1 * trk->sector_size;
+            trk->c_block = sz1 * trk->file_block_size;
 
             if ((trk->footer_flags & 2) == 0 && getU32(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, _unk2_size_)) == 0)
-                trk->unk_num = ((trk->sector_size - trk->start_offset) - 1 + ctableoff) / trk->sector_size;
+                trk->unk_num = ((trk->file_block_size - trk->start_offset) - 1 + ctableoff) / trk->file_block_size;
             else
                 trk->unk_num = getU32(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, _unk2_size_));
 
@@ -367,6 +406,8 @@ int main(int argc, const char *argv[])
         }
     }
 
+    if (extractOnlyData == 1)
+        printf("!! Writing only sector data, not full blocks\n");
     printf("Writing tracks:\n\n");
 
     for (TrackInfo *trk = processTracks; trk; trk = trk->next)
@@ -374,13 +415,80 @@ int main(int argc, const char *argv[])
         char ofbuf[1024];
         sprintf(ofbuf, "track%02d.out", trk->id);
 
-        printf("%s  sector size: %d  ", ofbuf, trk->sector_size);
+        printf("%s  type: %s  block size: 0x%x\n", ofbuf, S_TRACK_TYPE[trk->track_type], trk->file_block_size);
 
         if (trk->footer_flags & 1) //compressed
-            putc('c', stdout);
+            printf("\tcompressed\n");
         if (encryptInfo.mode != -1) //encrypted
-            putc('e', stdout);
-        putc('\n', stdout);
+            printf("\tencrypted\n");
+
+        u32 secSize = 0x800;
+        u32 dataOffset = 0;
+
+        // This all needs to be checked with different mds/mdx
+        // from imgengine.dll 0x180004450 with field_fc = 0xf8
+        // inited by engine.dll 0x7ffead41cc70 -> imgengine(ordinal_6)
+        // Is this only for CD?
+        if (trk->track_type == TRK_T_AUDIO)
+        {
+            secSize = 0x930;
+        }
+        else if (trk->track_type == TRK_T_MODE1)
+        {
+            secSize = 0x800;
+
+            //0xF8 flags enable mask
+            if (trk->track_flags & TRK_F_SYNC)
+                dataOffset += 0xc;
+            if (trk->track_flags & TRK_F_HEADER)
+                dataOffset += 4;
+
+        }
+        else if (trk->track_type == TRK_T_MODE2)
+        {
+            secSize = 0x920;
+
+            //0xB0 flags enable mask
+            if (trk->track_flags & TRK_F_SYNC)
+                dataOffset += 0xc;
+            if (trk->track_flags & TRK_F_HEADER)
+                dataOffset += 4;
+        }
+        else if (trk->track_type == TRK_T_MODE2_FORM1)
+        {
+            secSize = 0x800;
+
+            //0xF8 flags enable mask
+            if (trk->track_flags & TRK_F_SYNC)
+                dataOffset += 0xc;
+            if (trk->track_flags & TRK_F_HEADER)
+                dataOffset += 4;
+            if (trk->track_flags & TRK_F_SUBHEADER)
+                dataOffset += 8;
+        }
+        else if (trk->track_type == TRK_T_MODE2_FORM2)
+        {
+            secSize = 0x800;
+
+            //0xF8 flags enable mask
+            if (trk->track_flags & TRK_F_SYNC)
+                dataOffset += 0xc;
+            if (trk->track_flags & TRK_F_HEADER)
+                dataOffset += 4;
+            if (trk->track_flags & TRK_F_SUBHEADER)
+                dataOffset += 8;
+        }
+
+        printf("\tdata offset 0x%x   sector data size 0x%x\n", dataOffset, secSize);
+
+        int wrongSize = 0;
+
+        if (secSize + dataOffset != trk->file_block_size)
+        {
+            printf("\n!!!!!!!!  offset + sector size != block size !!!!!!!\n");
+            printf("     dump full sector size in any way\n");
+            wrongSize = 1;
+        }
 
         FILE *outfile = fopen(ofbuf, "wb");
 
@@ -413,7 +521,7 @@ int main(int argc, const char *argv[])
                     /* uncompressed data */
                     if ( i + 1 == trk->c_num )
                     {
-                        u32 rm = (trk->sector_size * trk->unk_num) % trk->c_block;
+                        u32 rm = (trk->file_block_size * trk->unk_num) % trk->c_block;
                         rdsize = trk->c_block;
                         if (rm)
                             rdsize = rm;
@@ -426,9 +534,29 @@ int main(int argc, const char *argv[])
                     fread(ibuf, rdsize, 1, mdf);
 
                     if (encryptInfo.mode != -1)
-                        TrackDataDecrypt(&encryptInfo, ibuf, rdsize, trk->sector_size, outTrackOffset / trk->sector_size, trk->footer_flags);
+                        TrackDataDecrypt(&encryptInfo, ibuf, rdsize, trk->file_block_size, outTrackOffset / trk->file_block_size, trk->footer_flags);
 
-                    fwrite(ibuf, rdsize, 1, outfile);
+                    if (extractOnlyData == 1 && wrongSize == 0 && secSize != trk->file_block_size)
+                    {
+                        u32 vdata = rdsize;
+                        const u8 *vdp = ibuf;
+                        while(vdata != 0)
+                        {
+                            vdata -= dataOffset;
+                            vdp += dataOffset;
+
+                            u32 wsize = secSize;
+                            if (wsize > vdata)
+                                wsize = vdata;
+
+                            fwrite(vdp, wsize, 1, outfile);
+
+                            vdata -= secSize;
+                            vdp += secSize;
+                        }
+                    }
+                    else
+                        fwrite(ibuf, rdsize, 1, outfile);
                 }
                 else
                 {
@@ -436,7 +564,28 @@ int main(int argc, const char *argv[])
                     {
                         // decompile flags 0x80
                         memset(ibuf, elm & 0xff, trk->c_block);
-                        fwrite(ibuf, trk->c_block, 1, outfile);
+
+                        if (extractOnlyData == 1 && wrongSize == 0 && secSize != trk->file_block_size)
+                        {
+                            u32 vdata = trk->c_block;
+                            const u8 *vdp = ibuf;
+                            while(vdata != 0)
+                            {
+                                vdata -= dataOffset;
+                                vdp += dataOffset;
+
+                                u32 wsize = secSize;
+                                if (wsize > vdata)
+                                    wsize = vdata;
+
+                                fwrite(vdp, wsize, 1, outfile);
+
+                                vdata -= secSize;
+                                vdp += secSize;
+                            }
+                        }
+                        else
+                            fwrite(ibuf, trk->c_block, 1, outfile);
                     }
                     else
                     {
@@ -447,7 +596,7 @@ int main(int argc, const char *argv[])
                         fread(ibuf, rdsize, 1, mdf);
 
                         if (encryptInfo.mode != -1)
-                            TrackDataDecrypt(&encryptInfo, ibuf, rdsize, trk->sector_size, outTrackOffset / trk->sector_size, trk->footer_flags);
+                            TrackDataDecrypt(&encryptInfo, ibuf, rdsize, trk->file_block_size, outTrackOffset / trk->file_block_size, trk->footer_flags);
 
                         z_stream cstrm;
                         cstrm.zalloc = Z_NULL;
@@ -472,7 +621,27 @@ int main(int argc, const char *argv[])
                             return -1;
                         }
 
-                        fwrite(dbuf, trk->c_block, 1, outfile);
+                        if (extractOnlyData == 1 && wrongSize == 0 && secSize != trk->file_block_size)
+                        {
+                            u32 vdata = trk->c_block;
+                            const u8 *vdp = dbuf;
+                            while(vdata != 0)
+                            {
+                                vdata -= dataOffset;
+                                vdp += dataOffset;
+
+                                u32 wsize = secSize;
+                                if (wsize > vdata)
+                                    wsize = vdata;
+
+                                fwrite(vdp, wsize, 1, outfile);
+
+                                vdata -= secSize;
+                                vdp += secSize;
+                            }
+                        }
+                        else
+                            fwrite(dbuf, trk->c_block, 1, outfile);
                     }
                 }
 
@@ -485,13 +654,13 @@ int main(int argc, const char *argv[])
         }
         else
         {
-            u8 *ibuf = (u8 *)malloc(trk->sector_size);
+            u8 *ibuf = (u8 *)malloc(trk->file_block_size);
 
             u64 outTrackOffset = 0;
             int progress = 0;
-            u64 bound = trk->start_offset + trk->length * trk->sector_size;
+            u64 bound = trk->start_offset + trk->length * trk->file_block_size;
 
-            for(u64 inAddr = trk->start_offset; inAddr < bound; inAddr += trk->sector_size)
+            for(u64 inAddr = trk->start_offset; inAddr < bound; inAddr += trk->file_block_size)
             {
                 if ( inAddr * 10 / mdfsize > progress )
                 {
@@ -499,17 +668,37 @@ int main(int argc, const char *argv[])
                     printf("%d%%\n", progress * 10);
                 }
 
-                u32 sz = trk->sector_size;
+                u32 sz = trk->file_block_size;
                 if (sz > bound - inAddr)
                     sz = bound - inAddr;
 
                 fread(ibuf, sz, 1, mdf);
                 if (encryptInfo.mode != -1)
-                    TrackDataDecrypt(&encryptInfo, ibuf, sz, trk->sector_size, outTrackOffset / trk->sector_size, trk->footer_flags);
+                    TrackDataDecrypt(&encryptInfo, ibuf, sz, trk->file_block_size, outTrackOffset / trk->file_block_size, trk->footer_flags);
 
-                fwrite(ibuf, sz, 1, outfile);
+                if (extractOnlyData == 1 && wrongSize == 0 && secSize != trk->file_block_size)
+                {
+                    u32 vdata = sz;
+                    const u8 *vdp = ibuf;
+                    while(vdata != 0)
+                    {
+                        vdata -= dataOffset;
+                        vdp += dataOffset;
 
-                outTrackOffset += trk->sector_size;
+                        u32 wsize = secSize;
+                        if (wsize > vdata)
+                            wsize = vdata;
+
+                        fwrite(vdp, wsize, 1, outfile);
+
+                        vdata -= secSize;
+                        vdp += secSize;
+                    }
+                }
+                else
+                    fwrite(ibuf, sz, 1, outfile);
+
+                outTrackOffset += trk->file_block_size;
             }
 
             free(ibuf);

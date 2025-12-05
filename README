@@ -15,7 +15,9 @@ So I just rewrite it with parts of TrueCrypt in `src` dir.
 To build `reader` in `src` dir prepared simple Makefile, so you can just do `make` in dir and it will build `mds` binary.
 
 
-Usage is `mds /path/to/file.mds [password]`
+Usage is `mds [-d] /path/to/file.mds [password]`
+
+ `-d` is for extract only data from sectors, not full block size
 
 
 
