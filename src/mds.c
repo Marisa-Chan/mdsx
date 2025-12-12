@@ -22,7 +22,9 @@ typedef struct tTrackInfo
     u8 track_flags;
     u16 file_block_size;
     u64 start_offset;
-    u64 length; // in sectors
+    u64 length; // logic size in sectors
+    u64 dataLength; // real data size in sectors
+    u32 blocksCGroup; // number of blocks in one compression group
     u64 end_offset;
     u64 footer_offset;
     u8 footer_flags;
@@ -357,20 +359,28 @@ int main(int argc, const char *argv[])
     /* read compression tables for tracks */
     for (TrackInfo *trk = processTracks; trk; trk = trk->next)
     {
+        trk->blocksCGroup = getU32(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, blocks_in_compression_group));
+        trk->dataLength = getU64(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, track_data_length));
+
         if (trk->footer_flags & 1) // compressed track
         {
-            u32 sz1 = getU32(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, _unk1_size32_));
-            u64 sz2 = getU32(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, _unk2_size64_));
             u64 ctableoff = getU64(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, compress_table_offset));
 
-            trk->c_block = sz1 * trk->file_block_size;
+            trk->c_block = trk->blocksCGroup * trk->file_block_size;
 
-            if ((trk->footer_flags & 2) == 0 && getU32(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, _unk2_size_)) == 0)
-                trk->unk_num = ((trk->file_block_size - trk->start_offset) - 1 + ctableoff) / trk->file_block_size;
+            if (0) /* if mds major < 2*/
+            {
+                if ((trk->footer_flags & 2) == 0 && getU32(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, _unk2_size_)) == 0)
+                    trk->unk_num = ((trk->file_block_size - trk->start_offset) - 1 + ctableoff) / trk->file_block_size;
+                else
+                    trk->unk_num = getU32(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, _unk2_size_));
+            }
             else
-                trk->unk_num = getU32(mdxHeader + trk->footer_offset + offsetof(MDX_Footer, _unk2_size_));
+            {
+                trk->unk_num = trk->dataLength;
+            }
 
-            trk->c_num = ((sz1 - 1) + sz2) / sz1;
+            trk->c_num = ((trk->blocksCGroup - 1) + trk->dataLength) / trk->blocksCGroup;
             trk->ctable = (u16 *)calloc(trk->c_num, 2);
 
             u64 filectableoff = trk->start_offset + ctableoff;
@@ -658,7 +668,7 @@ int main(int argc, const char *argv[])
 
             u64 outTrackOffset = 0;
             int progress = 0;
-            u64 bound = trk->start_offset + trk->length * trk->file_block_size;
+            u64 bound = trk->start_offset + trk->dataLength * trk->file_block_size;
 
             for(u64 inAddr = trk->start_offset; inAddr < bound; inAddr += trk->file_block_size)
             {

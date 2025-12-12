@@ -117,7 +117,7 @@ typedef struct __attribute__((packed))
 	u32 _unk4_; // 0x20;
 	u32 start_sector; // 0x24
 	u64 start_offset; // 0x28
-	u32 number_of_files; // 0x30
+	u32 footer_count; // 0x30
 	u32 footer_offset; // 0x34
 	u64 start_sector64; // 0x38   major >= 2
 	u64 track_size64; // 0x40   major >= 2
@@ -131,8 +131,8 @@ typedef struct __attribute__((packed))
 	u8 _dummy1_; // 5
 	u16 _unk1_size_; // 6
 	u32 _unk2_size_; // 8
-	u32 _unk1_size32_; // c     major >= 2
-	u64 _unk2_size64_; // 10   major >= 2
+	u32 blocks_in_compression_group; // c     major >= 2
+	u64 track_data_length; // 10   major >= 2
 	u64 compress_table_offset; // 18
 } MDX_Footer; // 0x20
 
